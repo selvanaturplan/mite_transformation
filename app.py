@@ -13,29 +13,21 @@ user_mapping = {
 }
 
 # Funktion für die Transformation
-def transform_data(uploaded_file):
-    # Datei lesen
-    data = pd.read_csv(uploaded_file, delimiter=';')
-    
+def transform_data(uploaded_file, file_type):
+    # Datei lesen (CSV oder Excel)
+    if file_type == "csv":
+        data = pd.read_csv(uploaded_file, delimiter=';')
+    elif file_type == "xlsx":
+        data = pd.read_excel(uploaded_file)
+
     # Nur nicht abgeschlossene Einträge filtern
     data = data[data['Abgeschlossen'] == 'Nein']
-    
-    # Kombinieren der Arbeitsbeschreibungen
-    data['Bemerkung'] = data['Bemerkung'].fillna('')  # Fehlende Beschreibungen mit leerem String auffüllen
-    grouped_data = (
-        data.groupby(['Datum', 'Benutzer'], as_index=False)
-        .agg({
-            'Bemerkung': lambda x: ', '.join(x),  # Kombinieren der Arbeitsbeschreibungen
-            'Stunden': 'sum',  # Summieren der Stunden
-            'Leistung': lambda x: ', '.join(x.unique())  # Leistung kombiniert
-        })
-    )
-    
-    # Pivot-Tabelle erstellen, um Arbeitstarif und Fahrtarif zu trennen
+
+    # Pivot-Tabelle erstellen, um Arbeitstarif und Fahrtarif in separaten Spalten zu haben
     pivoted_data = data.pivot_table(
-        index=['Datum', 'Benutzer'],
-        columns='Leistung',
-        values='Stunden',
+        index=['Datum', 'Benutzer'],  # Gruppieren nach Datum und Benutzer
+        columns='Leistung',  # Leistung (Arbeitstarif, Fahrtarif)
+        values='Stunden',  # Stunden summieren
         aggfunc='sum',
         fill_value=0
     ).reset_index()
@@ -46,9 +38,14 @@ def transform_data(uploaded_file):
             pivoted_data[required_column] = 0
 
     # Kombinierte Arbeitsbeschreibungen anhängen
+    grouped_data = (
+        data.groupby(['Datum', 'Benutzer'], as_index=False)
+        .agg({'Bemerkung': lambda x: ', '.join(x.dropna())})  # Arbeitsbeschreibungen kombinieren
+    )
+
     final_data = pd.merge(
         pivoted_data,
-        grouped_data[['Datum', 'Benutzer', 'Bemerkung']],
+        grouped_data,
         on=['Datum', 'Benutzer'],
         how='left'
     )
@@ -74,8 +71,11 @@ uploaded_file = st.file_uploader("Wähle eine Datei aus", type=["csv", "xlsx"])
 
 if uploaded_file:
     try:
+        # Dateityp ermitteln
+        file_type = "csv" if uploaded_file.name.endswith(".csv") else "xlsx"
+
         # Transformation durchführen
-        transformed_data = transform_data(uploaded_file)
+        transformed_data = transform_data(uploaded_file, file_type)
         
         # Zeige eine Vorschau
         st.write("Transformation abgeschlossen. Vorschau der Ergebnisse:")
